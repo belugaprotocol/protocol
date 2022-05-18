@@ -5,6 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IUniswapV2Pair} from "../interfaces/IUniswapV2Pair.sol";
 import {IERC20Ext} from "../interfaces/IERC20Ext.sol";
+import {Errors, _require} from "../lib/Errors.sol";
 import {ReentrancyGuard} from "../lib/ReentrancyGuard.sol";
 import {SafeTransferLib} from "../lib/SafeTransferLib.sol";
 import {BaseMarketMaker} from "../BaseMarketMaker.sol";
@@ -19,9 +20,7 @@ contract UniswapMarketMaker is BaseMarketMaker, ReentrancyGuard {
     constructor(
         IERC20 _lpToken,
         IERC20 _targetToken
-    ) BaseMarketMaker(_lpToken, _targetToken) {
-        
-    }
+    ) BaseMarketMaker(_lpToken, _targetToken) {}
 
     /// @notice Adds liquidity to the Smart LP.
     /// @param _tokenIn Token to add liquidity with.
@@ -31,15 +30,17 @@ contract UniswapMarketMaker is BaseMarketMaker, ReentrancyGuard {
         IERC20 _tokenIn,
         uint256 _amountIn
     ) external override nonReentrant returns (uint256) {
-        require(_amountIn > 0, "Cannot mint 0");
+        _require(_amountIn > 0, Errors.CANNOT_DEPOSIT_ZERO);
         IERC20 _token0 = token0;
         IERC20 _token1 = token1;
-        require(_tokenIn == _token0 || _tokenIn == _token1, "Must be one of the reserves");
+        _require(_tokenIn == _token0 || _tokenIn == _token1, Errors.CANNOT_DEPOSIT_ZERO);
 
         // Zap into the LP.
         uint8 tokenSide = _tokenIn == _token0 ? 0 : 1;
         InternalData memory _internalData = internalData;
         LastRecordedReserves memory _lastRecordedReserves = lastRecordedReserves;
+
+        // TODO: Perform adjustment before zap if adjusting is available.
 
         // We have to swap the token if it is not our target reserve.
         uint256 targetTokens = _amountIn;
@@ -53,7 +54,6 @@ contract UniswapMarketMaker is BaseMarketMaker, ReentrancyGuard {
         }
 
         // Calculate and mint shares.
-        // TODO: Implement math and logic for this.
         uint256 __totalSupply = totalSupply();
         uint256 totalTargetTokens = _internalData.targetBalanceOf + ((_internalData.targetReserve == 0 ? _lastRecordedReserves.reserve0 : _lastRecordedReserves.reserve1) * 2);
         uint256 toMint = __totalSupply == 0
@@ -74,7 +74,7 @@ contract UniswapMarketMaker is BaseMarketMaker, ReentrancyGuard {
         // Mint liquidity.
         TARGET_TOKEN.safeTransfer(address(LP_TOKEN), targetIn);
         uint256 mint = IUniswapV2Pair(address(LP_TOKEN)).mint(address(this));
-        require(mint > 0, "Insufficient mint");
+        _require(mint > 0, Errors.INSUFFICIENT_MINT);
 
         // Write to our position.
         _internalData.lpBalanceOf += uint112(mint);
@@ -88,15 +88,6 @@ contract UniswapMarketMaker is BaseMarketMaker, ReentrancyGuard {
         lastRecordedReserves = _lastRecordedReserves;
 
         return toMint;
-    }
-
-    /// @notice Adds liquidity to the Smart LP with specific amounts on each side.
-    /// @param _amounts Amount of each token to add liquidity with.
-    /// @return Output Smart LP tokens.
-    function addLiquidityWithAmounts(
-        uint256[] memory _amounts
-    ) external override returns (uint256) {
-        return 0;
     }
 
     /// @notice Redeems Smart LP tokens for the LP's reserves.

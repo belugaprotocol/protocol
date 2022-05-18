@@ -55,11 +55,6 @@ abstract contract BaseMarketMaker is ERC20("Beluga Smart LP", "keLP") {
     /// @return Output Smart LP tokens.
     function addLiquidity(IERC20 _tokenIn, uint256 _amountIn) external virtual returns (uint256);
 
-    /// @notice Adds liquidity to the Smart LP with specific amounts on each side.
-    /// @param _amounts Amount of each token to add liquidity with.
-    /// @return Output Smart LP tokens.
-    function addLiquidityWithAmounts(uint256[] memory _amounts) external virtual returns (uint256);
-
     /// @notice Redeems Smart LP tokens for the LP's reserves.
     /// @param _tokensIn Smart LP tokens to redeem.
     /// @return Output reserves from the redemption.

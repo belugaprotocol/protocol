@@ -12,11 +12,6 @@ interface IMarketMaker {
     /// @return Output Smart LP tokens.
     function addLiquidity(address _tokenIn, uint256 _amountIn) external returns (uint256);
 
-    /// @notice Adds liquidity to the Smart LP with specific amounts on each side.
-    /// @param _amounts Amount of each token to add liquidity with.
-    /// @return Output Smart LP tokens.
-    function addLiquidityWithAmounts(uint256[] memory _amounts) external returns (uint256);
-
     /// @notice Redeems Smart LP tokens for the LP's reserves.
     /// @param _tokensIn Smart LP tokens to redeem.
     /// @return Output reserves from the redemption.
