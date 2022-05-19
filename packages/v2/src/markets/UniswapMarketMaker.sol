@@ -22,6 +22,53 @@ contract UniswapMarketMaker is BaseMarketMaker, ReentrancyGuard {
         IERC20 _targetToken
     ) BaseMarketMaker(_lpToken, _targetToken) {}
 
+    /// @notice Adjusts the market position when there is enough IL.
+    function adjust() external override {
+        InternalData memory _internalData = internalData;
+        LastRecordedReserves memory _lastRecordedReserves = lastRecordedReserves;
+
+        uint256 liquiditySupply = LP_TOKEN.totalSupply();
+        (uint256 reserve0, uint256 reserve1,) = IUniswapV2Pair(address(LP_TOKEN)).getReserves();
+        uint256 mReserve0 = (reserve0 * _internalData.lpBalanceOf) / liquiditySupply;
+        uint256 mReserve1 = (reserve1 * _internalData.lpBalanceOf) / liquiditySupply;
+
+        // Check if the reserves changed enough to induce IL for an adjustment.
+        int256 r0Change = int256((reserve0 * 1000) % mReserve0);
+        int256 r1Change = int256((reserve1 * 1000) % mReserve1);
+
+        if(r0Change > 400 || r1Change > 400) {
+            // Check which way the LP was affected.
+            if((_internalData.targetReserve == 0 ? reserve0 < mReserve0 : reserve1 < mReserve1)) {
+                // In the case of IL decreasing our target side, we readjust our position with a zap.
+                uint256 diff = _internalData.targetReserve == 0 ? mReserve0 - reserve0 : mReserve1 - reserve1;
+                TARGET_TOKEN.safeTransfer(address(LP_TOKEN), diff);
+                (uint256 amount0Out, uint256 amount1Out) = _internalData.targetReserve == 0 ? (uint256(0), diff / 2) : (diff / 2, uint256(0));
+                TARGET_TOKEN.safeTransfer(address(LP_TOKEN), diff / 2);
+                IUniswapV2Pair(address(LP_TOKEN)).swap(amount0Out, amount1Out, address(LP_TOKEN), new bytes(0));
+
+                // Mint liquidity.
+                uint256 mint = IUniswapV2Pair(address(LP_TOKEN)).mint(address(this));
+                _require(mint > 0, Errors.INSUFFICIENT_MINT);
+                _internalData.lpBalanceOf += uint112(mint);
+                _internalData.targetBalanceOf -= uint112(diff / 2);
+            }
+        } else {
+            // No IL. We do not need to adjust our position.
+            return;
+        }
+
+        // Update stored data.
+        liquiditySupply = LP_TOKEN.totalSupply();
+        (reserve0, reserve1,) = IUniswapV2Pair(address(LP_TOKEN)).getReserves();
+        _lastRecordedReserves.reserve0 = uint112((reserve0 * _internalData.lpBalanceOf) / liquiditySupply);
+        _lastRecordedReserves.reserve1 = uint112((reserve1 * _internalData.lpBalanceOf) / liquiditySupply);
+
+        internalData = _internalData;
+        lastRecordedReserves = _lastRecordedReserves;
+
+        emit Adjustment(block.timestamp);
+    }
+
     /// @notice Adds liquidity to the Smart LP.
     /// @param _tokenIn Token to add liquidity with.
     /// @param _amountIn Amount of tokens to add liquidity with.
@@ -87,16 +134,26 @@ contract UniswapMarketMaker is BaseMarketMaker, ReentrancyGuard {
         internalData = _internalData;
         lastRecordedReserves = _lastRecordedReserves;
 
+        emit LiquidityAdded(msg.sender, _amountIn, toMint);
         return toMint;
     }
 
     /// @notice Redeems Smart LP tokens for the LP's reserves.
     /// @param _tokensIn Smart LP tokens to redeem.
+    /// @param _amountOutMin Min tokens received from the redemption.
     /// @return Output reserves from the redemption.
     function redeemLiquidity(
-        uint256 _tokensIn
-    ) external override returns (uint256[] memory) {
-        return new uint256[](0);
+        uint256 _tokensIn,
+        uint256 _amountOutMin
+    ) external override returns (uint256) {
+        InternalData memory _internalData = internalData;
+        LastRecordedReserves memory _lastRecordedReserves = lastRecordedReserves;
+
+        uint256 __totalSupply = totalSupply();
+        uint256 totalTargetTokens = _internalData.targetBalanceOf + ((_internalData.targetReserve == 0 ? _lastRecordedReserves.reserve0 : _lastRecordedReserves.reserve1) * 2);
+        uint256 targetAmount = (totalTargetTokens * _tokensIn) / __totalSupply;
+
+        return 0;
     }
 
     /// @notice Calculates how much of the target token is supplied in the Smart LP.

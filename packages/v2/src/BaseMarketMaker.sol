@@ -43,11 +43,20 @@ abstract contract BaseMarketMaker is ERC20("Beluga Smart LP", "keLP") {
     /// @notice token1 of the Smart LP.
     IERC20 public token1;
 
+    /// @notice Emitted on a new deposit into the Smart LP.
+    event LiquidityAdded(address indexed depositor, uint256 tokensIn, uint256 tokensOut);
+
+    /// @notice Emitted on an adjustment of the Smart LP.
+    event Adjustment(uint256 timestamp);
+
     constructor(IERC20 _lpToken, IERC20 _targetToken) {
         LP_TOKEN = _lpToken;
         TARGET_TOKEN = _targetToken;
         _setReserveTokens();
     }
+
+    /// @notice Adjusts the market position when there is enough IL.
+    function adjust() external virtual;
 
     /// @notice Adds liquidity to the Smart LP.
     /// @param _tokenIn Token to add liquidity with.
@@ -57,8 +66,9 @@ abstract contract BaseMarketMaker is ERC20("Beluga Smart LP", "keLP") {
 
     /// @notice Redeems Smart LP tokens for the LP's reserves.
     /// @param _tokensIn Smart LP tokens to redeem.
+    /// @param _amountOutMin Min tokens received from the redemption.
     /// @return Output reserves from the redemption.
-    function redeemLiquidity(uint256 _tokensIn) external virtual returns (uint256[] memory);
+    function redeemLiquidity(uint256 _tokensIn, uint256 _amountOutMin) external virtual returns (uint256);
 
     function _setReserveTokens() internal virtual;
 }

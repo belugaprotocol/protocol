@@ -6,6 +6,9 @@ pragma solidity ^0.8.0;
 /// @notice Abstract interface for a market making vault.
 
 interface IMarketMaker {
+    /// @notice Adjusts the market position when there is enough IL.
+    function adjust() external;
+
     /// @notice Adds liquidity to the Smart LP.
     /// @param _tokenIn Token to add liquidity with.
     /// @param _amountIn Amount of tokens to add liquidity with.
@@ -14,8 +17,9 @@ interface IMarketMaker {
 
     /// @notice Redeems Smart LP tokens for the LP's reserves.
     /// @param _tokensIn Smart LP tokens to redeem.
+    /// @param _amountOutMin Min tokens received from the redemption.
     /// @return Output reserves from the redemption.
-    function redeemLiquidity(uint256 _tokensIn) external returns (uint256[] memory);
+    function redeemLiquidity(uint256 _tokensIn, uint256 _amountOutMin) external returns (uint256);
 
     /// @notice Redeems Smart LP tokens and zaps them out to a specific token.
     /// @param _tokensIn Smart LP tokens to redeem.
