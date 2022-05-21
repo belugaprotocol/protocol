@@ -25,6 +25,15 @@ abstract contract BaseMarketMaker is ERC20("Beluga Smart LP", "keLP") {
         uint112 targetBalanceOf;
     }
 
+    /// @notice Structure for deposit variables.
+    struct DepositStack {
+        uint8 tokenSide;
+        uint112 mint;
+        uint112 liquiditySupply;
+        uint256 targetTokens;
+        uint256 toMint;
+    }
+
     /// @notice LP token used by the market maker.
     IERC20 public immutable LP_TOKEN;
 

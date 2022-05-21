@@ -83,48 +83,48 @@ contract UniswapMarketMaker is BaseMarketMaker, ReentrancyGuard {
         _require(_tokenIn == _token0 || _tokenIn == _token1, Errors.CANNOT_DEPOSIT_ZERO);
 
         // Zap into the LP.
-        uint8 tokenSide = _tokenIn == _token0 ? 0 : 1;
+        DepositStack memory _stack;
+        _stack.tokenSide = _tokenIn == _token0 ? 0 : 1;
         InternalData memory _internalData = internalData;
         LastRecordedReserves memory _lastRecordedReserves = lastRecordedReserves;
 
         // TODO: Perform adjustment before zap if adjusting is available.
 
         // We have to swap the token if it is not our target reserve.
-        uint256 targetTokens = _amountIn;
-        if(tokenSide != _internalData.targetReserve) {
+        _stack.targetTokens = _amountIn;
+        if(_stack.tokenSide != _internalData.targetReserve) {
             // It is cheaper for us to do a low-level swap.
             uint256 _balanceOf = TARGET_TOKEN.balanceOf(address(this));
             _tokenIn.safeTransferFrom(msg.sender, address(LP_TOKEN), _amountIn);
-            (uint256 amount0Out, uint256 amount1Out) = tokenSide == 0 ? (_amountIn, uint256(0)) : (uint256(0), _amountIn);
+            (uint256 amount0Out, uint256 amount1Out) = _stack.tokenSide == 0 ? (_amountIn, uint256(0)) : (uint256(0), _amountIn);
             IUniswapV2Pair(address(LP_TOKEN)).swap(amount0Out, amount1Out, address(this), new bytes(0));
-            targetTokens = TARGET_TOKEN.balanceOf(address(this)) - _balanceOf;
+            _stack.targetTokens = TARGET_TOKEN.balanceOf(address(this)) - _balanceOf;
         }
 
         // Calculate and mint shares.
         uint256 __totalSupply = totalSupply();
-        uint256 totalTargetTokens = _internalData.targetBalanceOf + ((_internalData.targetReserve == 0 ? _lastRecordedReserves.reserve0 : _lastRecordedReserves.reserve1) * 2);
-        uint256 toMint = __totalSupply == 0
-            ? targetTokens
-            : (targetTokens * __totalSupply) / (totalTargetTokens);
-        _mint(msg.sender, toMint);
+        _stack.toMint = __totalSupply == 0
+            ? _stack.targetTokens
+            : (_stack.targetTokens * __totalSupply) / (_internalData.targetBalanceOf + ((_internalData.targetReserve == 0 ? _lastRecordedReserves.reserve0 : _lastRecordedReserves.reserve1) * 2));
+        _mint(msg.sender, _stack.toMint);
 
         // Create LP position.
-        if(tokenSide == _internalData.targetReserve) _tokenIn.safeTransferFrom(msg.sender, address(this), _amountIn);
-        _internalData.targetBalanceOf += uint112(targetTokens / 2);
+        if(_stack.tokenSide == _internalData.targetReserve) _tokenIn.safeTransferFrom(msg.sender, address(this), _amountIn);
+        _internalData.targetBalanceOf += uint112(_stack.targetTokens / 2);
 
         // We need to swap half of half to the other side for the LP.
-        uint256 targetIn = (targetTokens / 2) / 2;
+        uint256 targetIn = (_stack.targetTokens / 2) / 2;
         TARGET_TOKEN.safeTransfer(address(LP_TOKEN), targetIn);
         (uint256 amount0Out, uint256 amount1Out) = _internalData.targetReserve == 0 ? (targetIn, uint256(0)) : (uint256(0), targetIn);
         IUniswapV2Pair(address(LP_TOKEN)).swap(amount0Out, amount1Out, address(LP_TOKEN), new bytes(0));
 
         // Mint liquidity.
         TARGET_TOKEN.safeTransfer(address(LP_TOKEN), targetIn);
-        uint256 mint = IUniswapV2Pair(address(LP_TOKEN)).mint(address(this));
-        _require(mint > 0, Errors.INSUFFICIENT_MINT);
+        _stack.mint = uint112(IUniswapV2Pair(address(LP_TOKEN)).mint(address(this)));
+        _require(_stack.mint > 0, Errors.INSUFFICIENT_MINT);
 
         // Write to our position.
-        _internalData.lpBalanceOf += uint112(mint);
+        _internalData.lpBalanceOf += uint112(_stack.mint);
         uint256 liquiditySupply = LP_TOKEN.totalSupply();
         (uint256 reserve0, uint256 reserve1,) = IUniswapV2Pair(address(LP_TOKEN)).getReserves();
         
@@ -134,8 +134,8 @@ contract UniswapMarketMaker is BaseMarketMaker, ReentrancyGuard {
         internalData = _internalData;
         lastRecordedReserves = _lastRecordedReserves;
 
-        emit LiquidityAdded(msg.sender, _amountIn, toMint);
-        return toMint;
+        emit LiquidityAdded(msg.sender, _amountIn, _stack.toMint);
+        return _stack.toMint;
     }
 
     /// @notice Redeems Smart LP tokens for the LP's reserves.
