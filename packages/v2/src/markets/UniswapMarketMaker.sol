@@ -29,15 +29,12 @@ contract UniswapMarketMaker is BaseMarketMaker, ReentrancyGuard {
 
         uint256 liquiditySupply = LP_TOKEN.totalSupply();
         (uint256 reserve0, uint256 reserve1,) = IUniswapV2Pair(address(LP_TOKEN)).getReserves();
-        uint256 tReserve0 = (reserve0 * _internalData.lpBalanceOf) / liquiditySupply;
-        uint256 tReserve1 = (reserve1 * _internalData.lpBalanceOf) / liquiditySupply;
 
         // Check if the reserves changed enough to induce IL for an adjustment.
-        uint256 targetReserve = _internalData.targetReserve == 0 ? tReserve0 : tReserve1;
+        uint256 targetReserve = _internalData.targetReserve == 0 ? (reserve0 * _internalData.lpBalanceOf) / liquiditySupply : (reserve1 * _internalData.lpBalanceOf) / liquiditySupply;
         uint256 targetVirtualReserve = _internalData.targetReserve == 0 ? _lastRecordedReserves.reserve0 : _lastRecordedReserves.reserve1;
-        uint256 rChange = (targetReserve * 1000) / targetVirtualReserve;
 
-        if(rChange >= 5000) {
+        if((targetReserve * 1000) / targetVirtualReserve >= 5000) {
             // Check which way the reserve changed.
             if(targetReserve > targetVirtualReserve) {
                 // In this case, we've gained more tokens from Il.
@@ -106,7 +103,48 @@ contract UniswapMarketMaker is BaseMarketMaker, ReentrancyGuard {
         InternalData memory _internalData = internalData;
         LastRecordedReserves memory _lastRecordedReserves = lastRecordedReserves;
 
-        // TODO: Perform adjustment before zap if adjusting is available.
+        // Perform an adjustment beforehand if needed.
+        uint256 liquiditySupply = LP_TOKEN.totalSupply();
+        (uint256 reserve0, uint256 reserve1,) = IUniswapV2Pair(address(LP_TOKEN)).getReserves();
+        {
+            // Check if the reserves changed enough to induce IL for an adjustment.
+            uint256 targetReserve = _internalData.targetReserve == 0 ? (reserve0 * _internalData.lpBalanceOf) / liquiditySupply : (reserve1 * _internalData.lpBalanceOf) / liquiditySupply;
+            uint256 targetVirtualReserve = _internalData.targetReserve == 0 ? _lastRecordedReserves.reserve0 : _lastRecordedReserves.reserve1;
+            if((targetReserve * 1000) / targetVirtualReserve >= 5000) {
+                // Check which way the reserve changed.
+                if(targetReserve > targetVirtualReserve) {
+                    // In this case, we've gained more tokens from Il.
+                    // This means that we can take profit from the LP.
+                    uint256 difference = (targetReserve - _internalData.targetBalanceOf) / 2;
+                    uint256 rate = ((_internalData.lpBalanceOf * 1e18) / targetReserve);
+                    uint256 burn = rate * difference;
+                    LP_TOKEN.safeTransfer(address(LP_TOKEN), burn);
+                    (uint256 r0Liquidity, uint256 r1Liquidity) = IUniswapV2Pair(address(LP_TOKEN)).burn(address(this));
+
+                    // Swap other reserve for our target token.
+                    (uint256 amount0Out, uint256 amount1Out) = _internalData.targetReserve == 0 ? (uint256(0), r1Liquidity) : (r0Liquidity, uint256(0));
+                    IUniswapV2Pair(address(LP_TOKEN)).swap(amount0Out, amount1Out, address(this), new bytes(0));
+
+                    _internalData.lpBalanceOf -= uint112(burn);
+                    _internalData.targetBalanceOf = uint112(TARGET_TOKEN.balanceOf(address(this)));
+
+                } else if(targetReserve < targetVirtualReserve) {
+                    // In this case, we've lost tokens to IL. This means that we will 
+                    // need to supply more liquidity to cover the losses made by the LP.
+                    uint256 difference = (targetVirtualReserve - targetReserve) * 2;
+                    uint256 toSwap = difference / 2;
+                    TARGET_TOKEN.safeTransfer(address(LP_TOKEN), difference / 2);
+                    (uint256 amount0Out, uint256 amount1Out) = _internalData.targetReserve == 0 ? (toSwap, uint256(0)) : (uint256(0), toSwap);
+                    IUniswapV2Pair(address(LP_TOKEN)).swap(amount0Out, amount1Out, address(LP_TOKEN), new bytes(0));
+                    TARGET_TOKEN.safeTransfer(address(LP_TOKEN), toSwap);
+                    uint256 mint = IUniswapV2Pair(address(LP_TOKEN)).mint(address(this));
+                    _require(mint > 0, Errors.INSUFFICIENT_MINT);
+
+                    _internalData.lpBalanceOf += uint112(mint);
+                    _internalData.targetBalanceOf -= uint112(difference);
+                }
+            }
+        }
 
         // We have to swap the token if it is not our target reserve.
         _stack.targetTokens = _amountIn;
@@ -143,8 +181,8 @@ contract UniswapMarketMaker is BaseMarketMaker, ReentrancyGuard {
 
         // Write to our position.
         _internalData.lpBalanceOf += uint112(_stack.mint);
-        uint256 liquiditySupply = LP_TOKEN.totalSupply();
-        (uint256 reserve0, uint256 reserve1,) = IUniswapV2Pair(address(LP_TOKEN)).getReserves();
+        liquiditySupply = LP_TOKEN.totalSupply();
+        (reserve0, reserve1,) = IUniswapV2Pair(address(LP_TOKEN)).getReserves();
         
         _lastRecordedReserves.reserve0 = uint112((reserve0 * _internalData.lpBalanceOf) / liquiditySupply);
         _lastRecordedReserves.reserve1 = uint112((reserve1 * _internalData.lpBalanceOf) / liquiditySupply);
@@ -164,48 +202,91 @@ contract UniswapMarketMaker is BaseMarketMaker, ReentrancyGuard {
         uint256 _tokensIn,
         uint256 _amountOutMin
     ) external override returns (uint256) {
+        RedemptionStack memory _stack;
         InternalData memory _internalData = internalData;
         LastRecordedReserves memory _lastRecordedReserves = lastRecordedReserves;
 
-        uint256 startingBalance = TARGET_TOKEN.balanceOf(address(this));
-        uint256 __totalSupply = totalSupply();
+        // Perform an adjustment beforehand if needed.
+        uint256 liquiditySupply = LP_TOKEN.totalSupply();
+        (uint256 reserve0, uint256 reserve1,) = IUniswapV2Pair(address(LP_TOKEN)).getReserves();
+        {
+            // Check if the reserves changed enough to induce IL for an adjustment.
+            _stack.targetReserve = _internalData.targetReserve == 0 ? (reserve0 * _internalData.lpBalanceOf) / liquiditySupply : (reserve1 * _internalData.lpBalanceOf) / liquiditySupply;
+            _stack.targetVirtualReserve = _internalData.targetReserve == 0 ? _lastRecordedReserves.reserve0 : _lastRecordedReserves.reserve1;
+            if((_stack.targetReserve * 1000) / _stack.targetVirtualReserve >= 5000) {
+                // Check which way the reserve changed.
+                if(_stack.targetReserve > _stack.targetVirtualReserve) {
+                    // In this case, we've gained more tokens from Il.
+                    // This means that we can take profit from the LP.
+                    uint256 difference = (_stack.targetReserve - _internalData.targetBalanceOf) / 2;
+                    uint256 rate = ((_internalData.lpBalanceOf * 1e18) / _stack.targetReserve);
+                    uint256 burn = rate * difference;
+                    LP_TOKEN.safeTransfer(address(LP_TOKEN), burn);
+                    (uint256 r0Liquidity, uint256 r1Liquidity) = IUniswapV2Pair(address(LP_TOKEN)).burn(address(this));
+
+                    // Swap other reserve for our target token.
+                    (uint256 amount0Out, uint256 amount1Out) = _internalData.targetReserve == 0 ? (uint256(0), r1Liquidity) : (r0Liquidity, uint256(0));
+                    IUniswapV2Pair(address(LP_TOKEN)).swap(amount0Out, amount1Out, address(this), new bytes(0));
+
+                    _internalData.lpBalanceOf -= uint112(burn);
+                    _internalData.targetBalanceOf = uint112(TARGET_TOKEN.balanceOf(address(this)));
+
+                } else if(_stack.targetReserve < _stack.targetVirtualReserve) {
+                    // In this case, we've lost tokens to IL. This means that we will 
+                    // need to supply more liquidity to cover the losses made by the LP.
+                    uint256 difference = (_stack.targetVirtualReserve - _stack.targetReserve) * 2;
+                    uint256 toSwap = difference / 2;
+                    TARGET_TOKEN.safeTransfer(address(LP_TOKEN), difference / 2);
+                    (uint256 amount0Out, uint256 amount1Out) = _internalData.targetReserve == 0 ? (toSwap, uint256(0)) : (uint256(0), toSwap);
+                    IUniswapV2Pair(address(LP_TOKEN)).swap(amount0Out, amount1Out, address(LP_TOKEN), new bytes(0));
+                    TARGET_TOKEN.safeTransfer(address(LP_TOKEN), toSwap);
+                    uint256 mint = IUniswapV2Pair(address(LP_TOKEN)).mint(address(this));
+                    _require(mint > 0, Errors.INSUFFICIENT_MINT);
+
+                    _internalData.lpBalanceOf += uint112(mint);
+                    _internalData.targetBalanceOf -= uint112(difference);
+                }
+            }
+        }
+
+        _stack.startingBalance = TARGET_TOKEN.balanceOf(address(this));
+        _stack.__totalSupply = totalSupply();
         _burn(msg.sender, _tokensIn);
-        uint256 totalTargetTokens = _internalData.targetBalanceOf + ((_internalData.targetReserve == 0 ? _lastRecordedReserves.reserve0 : _lastRecordedReserves.reserve1) * 2);
-        uint256 targetAmount = (totalTargetTokens * _tokensIn) / __totalSupply;
+        _stack.totalTargetTokens = _internalData.targetBalanceOf + ((_internalData.targetReserve == 0 ? _lastRecordedReserves.reserve0 : _lastRecordedReserves.reserve1) * 2);
+        uint256 targetAmount = (_stack.totalTargetTokens * _tokensIn) / _stack.__totalSupply;
 
         // Calculate LP tokens to burn and remove liquidity.
-        uint256 lpTokensNeeded = 
+        _stack.lpTokensNeeded = 
             ((
                 (
                     ((_internalData.targetReserve == 0 ? _lastRecordedReserves.reserve0 : _lastRecordedReserves.reserve1) * 2) * 1e18
                 ) / _internalData.lpBalanceOf
             ) / (targetAmount / 2));
-        LP_TOKEN.safeTransfer(address(LP_TOKEN), lpTokensNeeded);
+        LP_TOKEN.safeTransfer(address(LP_TOKEN), _stack.lpTokensNeeded);
         (uint256 r0Liquidity, uint256 r1Liquidity) = IUniswapV2Pair(address(LP_TOKEN)).burn(address(this));
 
         // Zap other side of the LP into the target token.
         (uint256 amount0Out, uint256 amount1Out) = _internalData.targetReserve == 0 ? (uint256(0), r1Liquidity) : (r0Liquidity, uint256(0));
         _internalData.targetReserve == 0 ? token1.safeTransfer(address(LP_TOKEN), r1Liquidity) : token0.safeTransfer(address(LP_TOKEN), r0Liquidity);
         IUniswapV2Pair(address(LP_TOKEN)).swap(amount0Out, amount1Out, address(this), new bytes(0));
-        uint256 endAmount = TARGET_TOKEN.balanceOf(address(this)) - startingBalance;
-        _require(endAmount >= _amountOutMin, Errors.SLIPPAGE);
+        _stack.endAmount = TARGET_TOKEN.balanceOf(address(this)) - _stack.startingBalance;
+        _require(_stack.endAmount >= _amountOutMin, Errors.SLIPPAGE);
 
         // Update stored data.
-        uint256 liquiditySupply = LP_TOKEN.totalSupply();
-        (uint256 reserve0, uint256 reserve1,) = IUniswapV2Pair(address(LP_TOKEN)).getReserves();
+        liquiditySupply = LP_TOKEN.totalSupply();
+        (reserve0, reserve1,) = IUniswapV2Pair(address(LP_TOKEN)).getReserves();
 
-        _internalData.lpBalanceOf -= uint112(lpTokensNeeded);
+        _internalData.lpBalanceOf -= uint112(_stack.lpTokensNeeded);
         _internalData.targetBalanceOf -= uint112(targetAmount / 2);
         _lastRecordedReserves.reserve0 = uint112((reserve0 * _internalData.lpBalanceOf) / liquiditySupply);
         _lastRecordedReserves.reserve1 = uint112((reserve1 * _internalData.lpBalanceOf) / liquiditySupply);
-        
         internalData = _internalData;
         lastRecordedReserves = _lastRecordedReserves;
 
-        TARGET_TOKEN.safeTransfer(msg.sender, endAmount);
+        TARGET_TOKEN.safeTransfer(msg.sender, _stack.endAmount);
 
         emit LiquidityRedeemed(msg.sender, _tokensIn, targetAmount);
-        return endAmount;
+        return _stack.endAmount;
     }
 
     /// @notice Safer version of `redeemLiquidity` which involves no zapping.
@@ -214,8 +295,52 @@ contract UniswapMarketMaker is BaseMarketMaker, ReentrancyGuard {
     function safeRedeemLiquidity(
         uint256 _tokensIn
     ) external override returns (uint256[] memory) {
+        RedemptionStack memory _stack;
         InternalData memory _internalData = internalData;
         LastRecordedReserves memory _lastRecordedReserves = lastRecordedReserves;
+
+        // Perform an adjustment beforehand if needed.
+        uint256 liquiditySupply = LP_TOKEN.totalSupply();
+        (uint256 reserve0, uint256 reserve1,) = IUniswapV2Pair(address(LP_TOKEN)).getReserves();
+        {
+            // Check if the reserves changed enough to induce IL for an adjustment.
+            _stack.targetReserve = _internalData.targetReserve == 0 ? (reserve0 * _internalData.lpBalanceOf) / liquiditySupply : (reserve1 * _internalData.lpBalanceOf) / liquiditySupply;
+            _stack.targetVirtualReserve = _internalData.targetReserve == 0 ? _lastRecordedReserves.reserve0 : _lastRecordedReserves.reserve1;
+            if((_stack.targetReserve * 1000) / _stack.targetVirtualReserve >= 5000) {
+                // Check which way the reserve changed.
+                if(_stack.targetReserve > _stack.targetVirtualReserve) {
+                    // In this case, we've gained more tokens from Il.
+                    // This means that we can take profit from the LP.
+                    uint256 difference = (_stack.targetReserve - _internalData.targetBalanceOf) / 2;
+                    uint256 rate = ((_internalData.lpBalanceOf * 1e18) / _stack.targetReserve);
+                    uint256 burn = rate * difference;
+                    LP_TOKEN.safeTransfer(address(LP_TOKEN), burn);
+                    (uint256 r0Liquidity, uint256 r1Liquidity) = IUniswapV2Pair(address(LP_TOKEN)).burn(address(this));
+
+                    // Swap other reserve for our target token.
+                    (uint256 amount0Out, uint256 amount1Out) = _internalData.targetReserve == 0 ? (uint256(0), r1Liquidity) : (r0Liquidity, uint256(0));
+                    IUniswapV2Pair(address(LP_TOKEN)).swap(amount0Out, amount1Out, address(this), new bytes(0));
+
+                    _internalData.lpBalanceOf -= uint112(burn);
+                    _internalData.targetBalanceOf = uint112(TARGET_TOKEN.balanceOf(address(this)));
+
+                } else if(_stack.targetReserve < _stack.targetVirtualReserve) {
+                    // In this case, we've lost tokens to IL. This means that we will 
+                    // need to supply more liquidity to cover the losses made by the LP.
+                    uint256 difference = (_stack.targetVirtualReserve - _stack.targetReserve) * 2;
+                    uint256 toSwap = difference / 2;
+                    TARGET_TOKEN.safeTransfer(address(LP_TOKEN), difference / 2);
+                    (uint256 amount0Out, uint256 amount1Out) = _internalData.targetReserve == 0 ? (toSwap, uint256(0)) : (uint256(0), toSwap);
+                    IUniswapV2Pair(address(LP_TOKEN)).swap(amount0Out, amount1Out, address(LP_TOKEN), new bytes(0));
+                    TARGET_TOKEN.safeTransfer(address(LP_TOKEN), toSwap);
+                    uint256 mint = IUniswapV2Pair(address(LP_TOKEN)).mint(address(this));
+                    _require(mint > 0, Errors.INSUFFICIENT_MINT);
+
+                    _internalData.lpBalanceOf += uint112(mint);
+                    _internalData.targetBalanceOf -= uint112(difference);
+                }
+            }
+        }
 
         uint256 __totalSupply = totalSupply();
         _burn(msg.sender, _tokensIn);
@@ -231,8 +356,8 @@ contract UniswapMarketMaker is BaseMarketMaker, ReentrancyGuard {
             ) / (targetAmount / 2));
 
         // Adjust virtual state.
-        uint256 liquiditySupply = LP_TOKEN.totalSupply();
-        (uint256 reserve0, uint256 reserve1,) = IUniswapV2Pair(address(LP_TOKEN)).getReserves();
+        liquiditySupply = LP_TOKEN.totalSupply();
+        (reserve0, reserve1,) = IUniswapV2Pair(address(LP_TOKEN)).getReserves();
 
         _internalData.lpBalanceOf -= uint112(lpTokensNeeded);
         _internalData.targetBalanceOf -= uint112(targetAmount / 2);
