@@ -24,7 +24,7 @@ interface IMarketMaker {
     /// @notice Safer version of `redeemLiquidity` which involves no zapping.
     /// @param _tokensIn Smart LP tokens to redeem.
     /// @return Output reserves from the redemption.
-    function safeRedeemLiquidity(uint256 _tokensIn) external returns (uint256);
+    function safeRedeemLiquidity(uint256 _tokensIn) external returns (uint256[] memory);
 
     /// @notice token0 of the Smart LP.
     function token0() external view returns (address);

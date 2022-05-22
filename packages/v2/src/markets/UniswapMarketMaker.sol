@@ -185,6 +185,8 @@ contract UniswapMarketMaker is BaseMarketMaker, ReentrancyGuard {
         lastRecordedReserves = _lastRecordedReserves;
 
         TARGET_TOKEN.safeTransfer(msg.sender, endAmount);
+
+        emit LiquidityRedeemed(msg.sender, _tokensIn, targetAmount);
         return endAmount;
     }
 
@@ -193,15 +195,44 @@ contract UniswapMarketMaker is BaseMarketMaker, ReentrancyGuard {
     /// @return Output reserves from the redemption.
     function safeRedeemLiquidity(
         uint256 _tokensIn
-    ) external override returns (uint256) {
+    ) external override returns (uint256[] memory) {
         InternalData memory _internalData = internalData;
         LastRecordedReserves memory _lastRecordedReserves = lastRecordedReserves;
 
         uint256 __totalSupply = totalSupply();
+        _burn(msg.sender, _tokensIn);
         uint256 totalTargetTokens = _internalData.targetBalanceOf + ((_internalData.targetReserve == 0 ? _lastRecordedReserves.reserve0 : _lastRecordedReserves.reserve1) * 2);
         uint256 targetAmount = (totalTargetTokens * _tokensIn) / __totalSupply;
 
+        // Calculate LP tokens to send and transfer tokens.
+        uint256 lpTokensNeeded = 
+            ((
+                (
+                    ((_internalData.targetReserve == 0 ? _lastRecordedReserves.reserve0 : _lastRecordedReserves.reserve1) * 2) * 1e18
+                ) / _internalData.lpBalanceOf
+            ) / (targetAmount / 2));
+
+        // Adjust virtual state.
+        uint256 liquiditySupply = LP_TOKEN.totalSupply();
+        (uint256 reserve0, uint256 reserve1,) = IUniswapV2Pair(address(LP_TOKEN)).getReserves();
+
+        _internalData.lpBalanceOf -= uint112(lpTokensNeeded);
+        _internalData.targetBalanceOf -= uint112(targetAmount / 2);
+        _lastRecordedReserves.reserve0 = uint112((reserve0 * _internalData.lpBalanceOf) / liquiditySupply);
+        _lastRecordedReserves.reserve1 = uint112((reserve1 * _internalData.lpBalanceOf) / liquiditySupply);
+
+        internalData = _internalData;
         lastRecordedReserves = _lastRecordedReserves;
+
+        TARGET_TOKEN.safeTransfer(msg.sender, targetAmount / 2);
+        LP_TOKEN.safeTransfer(msg.sender, lpTokensNeeded);
+
+        uint256[] memory outputs = new uint256[](2);
+        outputs[0] = targetAmount / 2;
+        outputs[1] = lpTokensNeeded;
+
+        emit LiquidityRedeemed(msg.sender, _tokensIn, targetAmount);
+        return outputs;
     }
 
     /// @notice Calculates how much of the target token is supplied in the Smart LP.

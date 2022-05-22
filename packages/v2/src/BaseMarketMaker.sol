@@ -55,6 +55,9 @@ abstract contract BaseMarketMaker is ERC20("Beluga Smart LP", "keLP") {
     /// @notice Emitted on a new deposit into the Smart LP.
     event LiquidityAdded(address indexed depositor, uint256 tokensIn, uint256 tokensOut);
 
+    /// @notice Emitted on a new Smart LP redemption.
+    event LiquidityRedeemed(address indexed depositor, uint256 tokensRedeemed, uint256 tokensOut);
+
     /// @notice Emitted on an adjustment of the Smart LP.
     event Adjustment(uint256 timestamp);
 
@@ -82,7 +85,7 @@ abstract contract BaseMarketMaker is ERC20("Beluga Smart LP", "keLP") {
     /// @notice Safer version of `redeemLiquidity` which involves no zapping.
     /// @param _tokensIn Smart LP tokens to redeem.
     /// @return Output reserves from the redemption.
-    function safeRedeemLiquidity(uint256 _tokensIn) external virtual returns (uint256);
+    function safeRedeemLiquidity(uint256 _tokensIn) external virtual returns (uint256[] memory);
 
     /// @notice Calculates how much of the target token is supplied in the Smart LP.
     /// @return Total amount of tokens held in the Smart LP position.
