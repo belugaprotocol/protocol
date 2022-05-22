@@ -29,18 +29,18 @@ contract UniswapMarketMaker is BaseMarketMaker, ReentrancyGuard {
 
         uint256 liquiditySupply = LP_TOKEN.totalSupply();
         (uint256 reserve0, uint256 reserve1,) = IUniswapV2Pair(address(LP_TOKEN)).getReserves();
-        uint256 mReserve0 = (reserve0 * _internalData.lpBalanceOf) / liquiditySupply;
-        uint256 mReserve1 = (reserve1 * _internalData.lpBalanceOf) / liquiditySupply;
+        uint256 vReserve0 = (reserve0 * _internalData.lpBalanceOf) / liquiditySupply;
+        uint256 vReserve1 = (reserve1 * _internalData.lpBalanceOf) / liquiditySupply;
 
         // Check if the reserves changed enough to induce IL for an adjustment.
-        int256 r0Change = int256((reserve0 * 1000) % mReserve0);
-        int256 r1Change = int256((reserve1 * 1000) % mReserve1);
+        uint256 r0Change = (reserve0 * 1000) / vReserve0;
+        uint256 r1Change = (reserve1 * 1000) / vReserve1;
 
-        if(r0Change > 400 || r1Change > 400) {
+        if(r0Change > 500 || r1Change > 500) {
             // Check which way the LP was affected.
-            if((_internalData.targetReserve == 0 ? reserve0 < mReserve0 : reserve1 < mReserve1)) {
+            if((_internalData.targetReserve == 0 ? reserve0 < vReserve0 : reserve1 < vReserve1)) {
                 // In the case of IL decreasing our target side, we readjust our position with a zap.
-                uint256 diff = _internalData.targetReserve == 0 ? mReserve0 - reserve0 : mReserve1 - reserve1;
+                uint256 diff = _internalData.targetReserve == 0 ? vReserve0 - reserve0 : vReserve1 - reserve1;
                 TARGET_TOKEN.safeTransfer(address(LP_TOKEN), diff);
                 (uint256 amount0Out, uint256 amount1Out) = _internalData.targetReserve == 0 ? (uint256(0), diff / 2) : (diff / 2, uint256(0));
                 TARGET_TOKEN.safeTransfer(address(LP_TOKEN), diff / 2);
