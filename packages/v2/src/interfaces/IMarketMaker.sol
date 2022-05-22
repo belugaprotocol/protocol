@@ -21,11 +21,10 @@ interface IMarketMaker {
     /// @return Output reserves from the redemption.
     function redeemLiquidity(uint256 _tokensIn, uint256 _amountOutMin) external returns (uint256);
 
-    /// @notice Redeems Smart LP tokens and zaps them out to a specific token.
+    /// @notice Safer version of `redeemLiquidity` which involves no zapping.
     /// @param _tokensIn Smart LP tokens to redeem.
-    /// @param _targetToken Target token to redeem the LPs for. Must be one of the reserves.
-    /// @return Output `_targetToken` received from the redemption.
-    function redeemAndZapOut(uint256 _tokensIn, address _targetToken) external returns (uint256);
+    /// @return Output reserves from the redemption.
+    function safeRedeemLiquidity(uint256 _tokensIn) external returns (uint256);
 
     /// @notice token0 of the Smart LP.
     function token0() external view returns (address);
@@ -33,7 +32,19 @@ interface IMarketMaker {
     /// @notice token1 of the Smart LP.
     function token1() external view returns (address);
 
-    /// @notice Ratio of tokens per Smart LP redeemed.
-    /// @return The amount of tokens on each reserve per Smart LP token.
-    function getRedemptionRatios() external view returns (uint256[] memory);
+    /// @notice Calculates if a ratio adjustment is possible.
+    /// @return Whether or not the Smart LP should adjust its ratio.
+    function shouldAdjust() external view returns (bool);
+
+    /// @notice Calculates how much of the target token is supplied in the Smart LP.
+    /// @return Total amount of tokens held in the Smart LP position.
+    function totalSuppliedAssets() external view returns (uint256);
+
+    /// @notice Calculates the virtual (or stored) ratio of the Smart LP.
+    /// @return The amount of `TARGET_TOKEN` one Smart LP token is worth.
+    function virtualRatio() external view returns (uint256);
+
+    /// @notice Calculates the unrealized (or current/real time) ratio of the Smart LP.
+    /// @return The amount of tokens one Smart LP token is worth based on current pair reserves.
+    function unrealizedRatio() external view returns (uint256);
 }

@@ -79,5 +79,22 @@ abstract contract BaseMarketMaker is ERC20("Beluga Smart LP", "keLP") {
     /// @return Output reserves from the redemption.
     function redeemLiquidity(uint256 _tokensIn, uint256 _amountOutMin) external virtual returns (uint256);
 
+    /// @notice Safer version of `redeemLiquidity` which involves no zapping.
+    /// @param _tokensIn Smart LP tokens to redeem.
+    /// @return Output reserves from the redemption.
+    function safeRedeemLiquidity(uint256 _tokensIn) external virtual returns (uint256);
+
+    /// @notice Calculates how much of the target token is supplied in the Smart LP.
+    /// @return Total amount of tokens held in the Smart LP position.
+    function totalSuppliedAssets() external view virtual returns (uint256);
+
+    /// @notice Calculates the virtual (or stored) ratio of the Smart LP.
+    /// @return The amount of tokens one Smart LP token is worth.
+    function virtualRatio() external view virtual returns (uint256);
+
+    /// @notice Calculates the unrealized (or current/real time) ratio of the Smart LP.
+    /// @return The amount of tokens one Smart LP token is worth based on current pair reserves.
+    function unrealizedRatio() external view virtual returns (uint256);
+
     function _setReserveTokens() internal virtual;
 }

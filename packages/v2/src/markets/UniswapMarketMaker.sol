@@ -153,11 +153,29 @@ contract UniswapMarketMaker is BaseMarketMaker, ReentrancyGuard {
         uint256 totalTargetTokens = _internalData.targetBalanceOf + ((_internalData.targetReserve == 0 ? _lastRecordedReserves.reserve0 : _lastRecordedReserves.reserve1) * 2);
         uint256 targetAmount = (totalTargetTokens * _tokensIn) / __totalSupply;
 
+        lastRecordedReserves = _lastRecordedReserves;
+
         return 0;
     }
 
+    /// @notice Safer version of `redeemLiquidity` which involves no zapping.
+    /// @param _tokensIn Smart LP tokens to redeem.
+    /// @return Output reserves from the redemption.
+    function safeRedeemLiquidity(
+        uint256 _tokensIn
+    ) external override returns (uint256) {
+        InternalData memory _internalData = internalData;
+        LastRecordedReserves memory _lastRecordedReserves = lastRecordedReserves;
+
+        uint256 __totalSupply = totalSupply();
+        uint256 totalTargetTokens = _internalData.targetBalanceOf + ((_internalData.targetReserve == 0 ? _lastRecordedReserves.reserve0 : _lastRecordedReserves.reserve1) * 2);
+        uint256 targetAmount = (totalTargetTokens * _tokensIn) / __totalSupply;
+
+        lastRecordedReserves = _lastRecordedReserves;
+    }
+
     /// @notice Calculates how much of the target token is supplied in the Smart LP.
-    /// @return Total amount of ``TARGET_TOKEN`` held in the Smart LP position.
+    /// @return Total amount of tokens held in the Smart LP position.
     function totalSuppliedAssets() external view returns (uint256) {
         return (
             internalData.targetBalanceOf
@@ -167,7 +185,7 @@ contract UniswapMarketMaker is BaseMarketMaker, ReentrancyGuard {
 
     /// @notice Calculates the virtual (or stored) ratio of the Smart LP.
     /// @return The amount of `TARGET_TOKEN` one Smart LP token is worth.
-    function virtualRatio() external view returns (uint256) {
+    function virtualRatio() external view override returns (uint256) {
         uint256 unit = 10 ** IERC20Ext(address(TARGET_TOKEN)).decimals();
         uint256 _totalSuppliedAssets = internalData.targetBalanceOf
             + ((internalData.targetReserve == 0 ? lastRecordedReserves.reserve0 : lastRecordedReserves.reserve1) * 2);
@@ -178,7 +196,7 @@ contract UniswapMarketMaker is BaseMarketMaker, ReentrancyGuard {
 
     /// @notice Calculates the unrealized (or current/real time) ratio of the Smart LP.
     /// @return The amount of `TARGET_TOKEN` one Smart LP token is worth based on current pair reserves.
-    function unrealizedRatio() external view returns (uint256) {
+    function unrealizedRatio() external view override returns (uint256) {
         uint256 unit = 10 ** IERC20Ext(address(TARGET_TOKEN)).decimals();
         uint256 liquiditySupply = LP_TOKEN.totalSupply();
         (uint256 reserve0, uint256 reserve1,) = IUniswapV2Pair(address(LP_TOKEN)).getReserves();
