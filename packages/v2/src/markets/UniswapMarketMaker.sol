@@ -29,28 +29,46 @@ contract UniswapMarketMaker is BaseMarketMaker, ReentrancyGuard {
 
         uint256 liquiditySupply = LP_TOKEN.totalSupply();
         (uint256 reserve0, uint256 reserve1,) = IUniswapV2Pair(address(LP_TOKEN)).getReserves();
-        uint256 vReserve0 = (reserve0 * _internalData.lpBalanceOf) / liquiditySupply;
-        uint256 vReserve1 = (reserve1 * _internalData.lpBalanceOf) / liquiditySupply;
+        uint256 tReserve0 = (reserve0 * _internalData.lpBalanceOf) / liquiditySupply;
+        uint256 tReserve1 = (reserve1 * _internalData.lpBalanceOf) / liquiditySupply;
 
         // Check if the reserves changed enough to induce IL for an adjustment.
-        uint256 r0Change = (reserve0 * 1000) / vReserve0;
-        uint256 r1Change = (reserve1 * 1000) / vReserve1;
+        uint256 targetReserve = _internalData.targetReserve == 0 ? tReserve0 : tReserve1;
+        uint256 targetVirtualReserve = _internalData.targetReserve == 0 ? _lastRecordedReserves.reserve0 : _lastRecordedReserves.reserve1;
+        uint256 rChange = (targetReserve * 1000) / targetVirtualReserve;
 
-        if(r0Change > 500 || r1Change > 500) {
-            // Check which way the LP was affected.
-            if((_internalData.targetReserve == 0 ? reserve0 < vReserve0 : reserve1 < vReserve1)) {
-                // In the case of IL decreasing our target side, we readjust our position with a zap.
-                uint256 diff = _internalData.targetReserve == 0 ? vReserve0 - reserve0 : vReserve1 - reserve1;
-                TARGET_TOKEN.safeTransfer(address(LP_TOKEN), diff);
-                (uint256 amount0Out, uint256 amount1Out) = _internalData.targetReserve == 0 ? (uint256(0), diff / 2) : (diff / 2, uint256(0));
-                TARGET_TOKEN.safeTransfer(address(LP_TOKEN), diff / 2);
+        if(rChange >= 5000) {
+            // Check which way the reserve changed.
+            if(targetReserve > targetVirtualReserve) {
+                // In this case, we've gained more tokens from Il.
+                // This means that we can take profit from the LP.
+                uint256 difference = (targetReserve - _internalData.targetBalanceOf) / 2;
+                uint256 rate = ((_internalData.lpBalanceOf * 1e18) / targetReserve);
+                uint256 burn = rate * difference;
+                LP_TOKEN.safeTransfer(address(LP_TOKEN), burn);
+                (uint256 r0Liquidity, uint256 r1Liquidity) = IUniswapV2Pair(address(LP_TOKEN)).burn(address(this));
+
+                // Swap other reserve for our target token.
+                (uint256 amount0Out, uint256 amount1Out) = _internalData.targetReserve == 0 ? (uint256(0), r1Liquidity) : (r0Liquidity, uint256(0));
+                IUniswapV2Pair(address(LP_TOKEN)).swap(amount0Out, amount1Out, address(this), new bytes(0));
+
+                _internalData.lpBalanceOf -= uint112(burn);
+                _internalData.targetBalanceOf = uint112(TARGET_TOKEN.balanceOf(address(this)));
+
+            } else if(targetReserve < targetVirtualReserve) {
+                // In this case, we've lost tokens to IL. This means that we will 
+                // need to supply more liquidity to cover the losses made by the LP.
+                uint256 difference = (targetVirtualReserve - targetReserve) * 2;
+                uint256 toSwap = difference / 2;
+                TARGET_TOKEN.safeTransfer(address(LP_TOKEN), difference / 2);
+                (uint256 amount0Out, uint256 amount1Out) = _internalData.targetReserve == 0 ? (toSwap, uint256(0)) : (uint256(0), toSwap);
                 IUniswapV2Pair(address(LP_TOKEN)).swap(amount0Out, amount1Out, address(LP_TOKEN), new bytes(0));
-
-                // Mint liquidity.
+                TARGET_TOKEN.safeTransfer(address(LP_TOKEN), toSwap);
                 uint256 mint = IUniswapV2Pair(address(LP_TOKEN)).mint(address(this));
                 _require(mint > 0, Errors.INSUFFICIENT_MINT);
+
                 _internalData.lpBalanceOf += uint112(mint);
-                _internalData.targetBalanceOf -= uint112(diff / 2);
+                _internalData.targetBalanceOf -= uint112(difference);
             }
         } else {
             // No IL. We do not need to adjust our position.
