@@ -128,4 +128,5 @@ library Errors {
     uint256 internal constant TX_ORIGIN_NOT_PERMITTED = 37;
     uint256 internal constant MUST_BE_RESERVE_TOKEN = 38;
     uint256 internal constant INSUFFICIENT_MINT = 39;
+    uint256 internal constant SLIPPAGE = 40;
 }

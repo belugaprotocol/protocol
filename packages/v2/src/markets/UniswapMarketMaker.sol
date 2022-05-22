@@ -149,13 +149,43 @@ contract UniswapMarketMaker is BaseMarketMaker, ReentrancyGuard {
         InternalData memory _internalData = internalData;
         LastRecordedReserves memory _lastRecordedReserves = lastRecordedReserves;
 
+        uint256 startingBalance = TARGET_TOKEN.balanceOf(address(this));
         uint256 __totalSupply = totalSupply();
+        _burn(msg.sender, _tokensIn);
         uint256 totalTargetTokens = _internalData.targetBalanceOf + ((_internalData.targetReserve == 0 ? _lastRecordedReserves.reserve0 : _lastRecordedReserves.reserve1) * 2);
         uint256 targetAmount = (totalTargetTokens * _tokensIn) / __totalSupply;
 
+        // Calculate LP tokens to burn and remove liquidity.
+        uint256 lpTokensNeeded = 
+            ((
+                (
+                    ((_internalData.targetReserve == 0 ? _lastRecordedReserves.reserve0 : _lastRecordedReserves.reserve1) * 2) * 1e18
+                ) / _internalData.lpBalanceOf
+            ) / (targetAmount / 2));
+        LP_TOKEN.safeTransfer(address(LP_TOKEN), lpTokensNeeded);
+        (uint256 r0Liquidity, uint256 r1Liquidity) = IUniswapV2Pair(address(LP_TOKEN)).burn(address(this));
+
+        // Zap other side of the LP into the target token.
+        (uint256 amount0Out, uint256 amount1Out) = _internalData.targetReserve == 0 ? (uint256(0), r1Liquidity) : (r0Liquidity, uint256(0));
+        _internalData.targetReserve == 0 ? token1.safeTransfer(address(LP_TOKEN), r1Liquidity) : token0.safeTransfer(address(LP_TOKEN), r0Liquidity);
+        IUniswapV2Pair(address(LP_TOKEN)).swap(amount0Out, amount1Out, address(this), new bytes(0));
+        uint256 endAmount = TARGET_TOKEN.balanceOf(address(this)) - startingBalance;
+        _require(endAmount >= _amountOutMin, Errors.SLIPPAGE);
+
+        // Update stored data.
+        uint256 liquiditySupply = LP_TOKEN.totalSupply();
+        (uint256 reserve0, uint256 reserve1,) = IUniswapV2Pair(address(LP_TOKEN)).getReserves();
+
+        _internalData.lpBalanceOf -= uint112(lpTokensNeeded);
+        _internalData.targetBalanceOf -= uint112(targetAmount / 2);
+        _lastRecordedReserves.reserve0 = uint112((reserve0 * _internalData.lpBalanceOf) / liquiditySupply);
+        _lastRecordedReserves.reserve1 = uint112((reserve1 * _internalData.lpBalanceOf) / liquiditySupply);
+        
+        internalData = _internalData;
         lastRecordedReserves = _lastRecordedReserves;
 
-        return 0;
+        TARGET_TOKEN.safeTransfer(msg.sender, endAmount);
+        return endAmount;
     }
 
     /// @notice Safer version of `redeemLiquidity` which involves no zapping.
