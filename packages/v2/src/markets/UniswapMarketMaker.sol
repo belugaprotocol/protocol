@@ -176,7 +176,7 @@ contract UniswapMarketMaker is BaseMarketMaker, ReentrancyGuard {
 
     /// @notice Calculates how much of the target token is supplied in the Smart LP.
     /// @return Total amount of tokens held in the Smart LP position.
-    function totalSuppliedAssets() external view returns (uint256) {
+    function totalSuppliedAssets() external view override returns (uint256) {
         return (
             internalData.targetBalanceOf
             + ((internalData.targetReserve == 0 ? lastRecordedReserves.reserve0 : lastRecordedReserves.reserve1) * 2)
