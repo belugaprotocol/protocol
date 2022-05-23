@@ -32,13 +32,14 @@ abstract contract BaseMarketMaker is ERC20("Beluga Smart LP", "keLP") {
         uint112 liquiditySupply;
         uint256 targetTokens;
         uint256 toMint;
+        IERC20 otherSide;
+        uint256 tokensOtherSide;
     }
 
     /// @notice Structure for redemption variables.
     struct RedemptionStack {
         uint256 targetReserve;
         uint256 targetVirtualReserve;
-        uint256 rChange;
         uint256 startingBalance;
         uint256 __totalSupply;
         uint256 totalTargetTokens;
@@ -98,6 +99,10 @@ abstract contract BaseMarketMaker is ERC20("Beluga Smart LP", "keLP") {
     /// @param _tokensIn Smart LP tokens to redeem.
     /// @return Output reserves from the redemption.
     function safeRedeemLiquidity(uint256 _tokensIn) external virtual returns (uint256[] memory);
+
+    /// @notice Calculates if a ratio adjustment is possible.
+    /// @return Whether or not the Smart LP should adjust its ratio.
+    function shouldAdjust() external view virtual returns (bool);
 
     /// @notice Calculates how much of the target token is supplied in the Smart LP.
     /// @return Total amount of tokens held in the Smart LP position.

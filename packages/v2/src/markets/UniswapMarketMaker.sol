@@ -39,7 +39,8 @@ contract UniswapMarketMaker is BaseMarketMaker, ReentrancyGuard {
             if(targetReserve > targetVirtualReserve) {
                 // In this case, we've gained more tokens from Il.
                 // This means that we can take profit from the LP.
-                uint256 difference = (targetReserve - _internalData.targetBalanceOf) / 2;
+                uint256 performanceFee = ((((targetReserve - _internalData.targetBalanceOf) * ((targetReserve * 1000) / targetVirtualReserve)) / 10000) * 10) / 100;
+                uint256 difference = ((targetReserve - _internalData.targetBalanceOf) / 2) - performanceFee;
                 uint256 rate = ((_internalData.lpBalanceOf * 1e18) / targetReserve);
                 uint256 burn = rate * difference;
                 LP_TOKEN.safeTransfer(address(LP_TOKEN), burn);
@@ -106,7 +107,7 @@ contract UniswapMarketMaker is BaseMarketMaker, ReentrancyGuard {
         // Perform an adjustment beforehand if needed.
         uint256 liquiditySupply = LP_TOKEN.totalSupply();
         (uint256 reserve0, uint256 reserve1,) = IUniswapV2Pair(address(LP_TOKEN)).getReserves();
-        {
+        if(_internalData.lpBalanceOf > 0) {
             // Check if the reserves changed enough to induce IL for an adjustment.
             uint256 targetReserve = _internalData.targetReserve == 0 ? (reserve0 * _internalData.lpBalanceOf) / liquiditySupply : (reserve1 * _internalData.lpBalanceOf) / liquiditySupply;
             uint256 targetVirtualReserve = _internalData.targetReserve == 0 ? _lastRecordedReserves.reserve0 : _lastRecordedReserves.reserve1;
@@ -115,7 +116,8 @@ contract UniswapMarketMaker is BaseMarketMaker, ReentrancyGuard {
                 if(targetReserve > targetVirtualReserve) {
                     // In this case, we've gained more tokens from Il.
                     // This means that we can take profit from the LP.
-                    uint256 difference = (targetReserve - _internalData.targetBalanceOf) / 2;
+                    uint256 performanceFee = ((((targetReserve - _internalData.targetBalanceOf) * ((targetReserve * 1000) / targetVirtualReserve)) / 10000) * 10) / 100;
+                    uint256 difference = ((targetReserve - _internalData.targetBalanceOf) / 2) - performanceFee;
                     uint256 rate = ((_internalData.lpBalanceOf * 1e18) / targetReserve);
                     uint256 burn = rate * difference;
                     LP_TOKEN.safeTransfer(address(LP_TOKEN), burn);
@@ -152,7 +154,7 @@ contract UniswapMarketMaker is BaseMarketMaker, ReentrancyGuard {
             // It is cheaper for us to do a low-level swap.
             uint256 _balanceOf = TARGET_TOKEN.balanceOf(address(this));
             _tokenIn.safeTransferFrom(msg.sender, address(LP_TOKEN), _amountIn);
-            (uint256 amount0Out, uint256 amount1Out) = _stack.tokenSide == 0 ? (_amountIn, uint256(0)) : (uint256(0), _amountIn);
+            (uint256 amount0Out, uint256 amount1Out) = _stack.tokenSide == 0 ? (uint256(0), _amountIn) : (_amountIn, uint256(0));
             IUniswapV2Pair(address(LP_TOKEN)).swap(amount0Out, amount1Out, address(this), new bytes(0));
             _stack.targetTokens = TARGET_TOKEN.balanceOf(address(this)) - _balanceOf;
         }
@@ -171,11 +173,15 @@ contract UniswapMarketMaker is BaseMarketMaker, ReentrancyGuard {
         // We need to swap half of half to the other side for the LP.
         uint256 targetIn = (_stack.targetTokens / 2) / 2;
         TARGET_TOKEN.safeTransfer(address(LP_TOKEN), targetIn);
-        (uint256 amount0Out, uint256 amount1Out) = _internalData.targetReserve == 0 ? (targetIn, uint256(0)) : (uint256(0), targetIn);
-        IUniswapV2Pair(address(LP_TOKEN)).swap(amount0Out, amount1Out, address(LP_TOKEN), new bytes(0));
+        _stack.otherSide = _internalData.targetReserve == 0 ? token1 : token0;
+        _stack.tokensOtherSide = _stack.otherSide.balanceOf(address(this));
+        (uint256 amount0Out, uint256 amount1Out) = _internalData.targetReserve == 0 ? (uint256(0), targetIn) : (targetIn, uint256(0));
+        IUniswapV2Pair(address(LP_TOKEN)).swap(amount0Out, amount1Out, address(this), new bytes(0));
+        _stack.tokensOtherSide = _stack.otherSide.balanceOf(address(this)) - _stack.tokensOtherSide;
 
         // Mint liquidity.
         TARGET_TOKEN.safeTransfer(address(LP_TOKEN), targetIn);
+        _stack.otherSide.safeTransfer(address(LP_TOKEN), _stack.tokensOtherSide);
         _stack.mint = uint112(IUniswapV2Pair(address(LP_TOKEN)).mint(address(this)));
         _require(_stack.mint > 0, Errors.INSUFFICIENT_MINT);
 
@@ -218,7 +224,8 @@ contract UniswapMarketMaker is BaseMarketMaker, ReentrancyGuard {
                 if(_stack.targetReserve > _stack.targetVirtualReserve) {
                     // In this case, we've gained more tokens from Il.
                     // This means that we can take profit from the LP.
-                    uint256 difference = (_stack.targetReserve - _internalData.targetBalanceOf) / 2;
+                    uint256 performanceFee = ((((_stack.targetReserve - _internalData.targetBalanceOf) * ((_stack.targetReserve * 1000) / _stack.targetVirtualReserve)) / 10000) * 10) / 100;
+                    uint256 difference = ((_stack.targetReserve - _internalData.targetBalanceOf) / 2) - performanceFee;
                     uint256 rate = ((_internalData.lpBalanceOf * 1e18) / _stack.targetReserve);
                     uint256 burn = rate * difference;
                     LP_TOKEN.safeTransfer(address(LP_TOKEN), burn);
@@ -311,7 +318,8 @@ contract UniswapMarketMaker is BaseMarketMaker, ReentrancyGuard {
                 if(_stack.targetReserve > _stack.targetVirtualReserve) {
                     // In this case, we've gained more tokens from Il.
                     // This means that we can take profit from the LP.
-                    uint256 difference = (_stack.targetReserve - _internalData.targetBalanceOf) / 2;
+                    uint256 performanceFee = ((((_stack.targetReserve - _internalData.targetBalanceOf) * ((_stack.targetReserve * 1000) / _stack.targetVirtualReserve)) / 10000) * 10) / 100;
+                    uint256 difference = ((_stack.targetReserve - _internalData.targetBalanceOf) / 2) - performanceFee;
                     uint256 rate = ((_internalData.lpBalanceOf * 1e18) / _stack.targetReserve);
                     uint256 burn = rate * difference;
                     LP_TOKEN.safeTransfer(address(LP_TOKEN), burn);
@@ -376,6 +384,22 @@ contract UniswapMarketMaker is BaseMarketMaker, ReentrancyGuard {
 
         emit LiquidityRedeemed(msg.sender, _tokensIn, targetAmount);
         return outputs;
+    }
+
+    /// @notice Calculates if a ratio adjustment is possible.
+    /// @return Whether or not the Smart LP should adjust its ratio.
+    function shouldAdjust() external view override returns (bool) {
+        InternalData memory _internalData = internalData;
+        LastRecordedReserves memory _lastRecordedReserves = lastRecordedReserves;
+
+        uint256 liquiditySupply = LP_TOKEN.totalSupply();
+        (uint256 reserve0, uint256 reserve1,) = IUniswapV2Pair(address(LP_TOKEN)).getReserves();
+
+        // Calculate reserves for checking for an adjustment.
+        uint256 targetReserve = _internalData.targetReserve == 0 ? (reserve0 * _internalData.lpBalanceOf) / liquiditySupply : (reserve1 * _internalData.lpBalanceOf) / liquiditySupply;
+        uint256 targetVirtualReserve = _internalData.targetReserve == 0 ? _lastRecordedReserves.reserve0 : _lastRecordedReserves.reserve1;
+
+        return (targetReserve * 1000) / targetVirtualReserve >= 5000;
     }
 
     /// @notice Calculates how much of the target token is supplied in the Smart LP.
