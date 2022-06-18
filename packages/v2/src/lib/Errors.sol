@@ -129,4 +129,8 @@ library Errors {
     uint256 internal constant MUST_BE_RESERVE_TOKEN = 38;
     uint256 internal constant INSUFFICIENT_MINT = 39;
     uint256 internal constant SLIPPAGE = 40;
+
+    // BAI stablecoin.
+    uint256 internal constant UNSUPPORTED_COLLATERAL = 41;
+    uint256 internal constant MINT_CAP_EXCEEDED = 42;
 }
