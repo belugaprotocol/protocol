@@ -105,6 +105,8 @@ contract CrosschainProfitshare {
     /// @param _proof Merkle proof supplied for relaying.
     /// @param _amount Amount of tokens to deposit.
     function deposit(bytes32[] calldata _proof, uint256 _amount) external {
+        require(_amount >= 0.5 ether, "Min deposit of 0.5");
+
         // Update reward variables.
         _updateRewards(msg.sender);
 
