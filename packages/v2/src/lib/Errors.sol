@@ -130,7 +130,15 @@ library Errors {
     uint256 internal constant INSUFFICIENT_MINT = 39;
     uint256 internal constant SLIPPAGE = 40;
 
+    // Cross-chain Profitshare.
+    uint256 internal constant MIN_DEPOSIT_OF_0_5 = 41;
+    uint256 internal constant MESSAGE_ALREADY_USED = 42;
+    uint256 internal constant SPENDER_NOT_PERMITTED = 43;
+    uint256 internal constant INSUFFICIENT_ALLOWANCE = 44;
+    uint256 internal constant INSUFFICIENT_STAKED_BALANCE = 45;
+    uint256 internal constant INVALID_ROOT = 46;
+
     // BAI stablecoin.
-    uint256 internal constant UNSUPPORTED_COLLATERAL = 41;
-    uint256 internal constant MINT_CAP_EXCEEDED = 42;
+    uint256 internal constant UNSUPPORTED_COLLATERAL = 47;
+    uint256 internal constant MINT_CAP_EXCEEDED = 48;
 }

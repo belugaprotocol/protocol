@@ -5,7 +5,9 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeMath} from "@openzeppelin/contracts/utils/math/SafeMath.sol";
 import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Governable} from "./lib/Governable.sol";
 import {SafeTransferLib} from "./lib/SafeTransferLib.sol";
+import {Errors, _require} from "./lib/Errors.sol";
 import {Cast} from "./lib/Cast.sol";
 import {CrosschainRootState} from "./CrosschainRootState.sol";
 
@@ -13,7 +15,7 @@ import {CrosschainRootState} from "./CrosschainRootState.sol";
 /// @author Chainvisions
 /// @notice Crosschain profitsharing vault for BELUGA staking.
 
-contract CrosschainProfitshare {
+contract CrosschainProfitshare is Governable {
     using Cast for uint256;
     using SafeMath for uint256;
     using SafeTransferLib for IERC20;
@@ -119,7 +121,15 @@ contract CrosschainProfitshare {
     /// @param amount Amount of reward tokens claimed.
     event RewardPaid(address indexed depositor, IERC20 indexed rewardToken, uint256 amount);
 
-    constructor(IERC20 _beluga, CrosschainRootState _rootState) {
+    /// @notice Constructor for the cross-chain profitshare.
+    /// @param _store Storage contract for access control.
+    /// @param _beluga BELUGA token contract.
+    /// @param _rootState CrosschainRootState contract for merkle roots.
+    constructor(
+        address _store,
+        IERC20 _beluga,
+        CrosschainRootState _rootState
+    ) Governable(_store) {
         BELUGA_TOKEN = _beluga;
         ROOT_STATE = _rootState;
     }
@@ -129,8 +139,8 @@ contract CrosschainProfitshare {
     /// @param _amount Amount of tokens to deposit.
     function deposit(bytes32[] calldata _proof, uint256 _amount) external {
         (bytes32 root, ) = ROOT_STATE.rootForChain(block.chainid);
-        require(_amount >= 0.5 ether, "Min deposit of 0.5");
-        require(!usedMessage[CrosschainAction.Deposit][root][msg.sender][block.chainid][_amount], "Message already used");
+        _require(_amount >= 0.5 ether, Errors.MIN_DEPOSIT_OF_0_5);
+        _require(!usedMessage[CrosschainAction.Deposit][root][msg.sender][block.chainid][_amount], Errors.MESSAGE_ALREADY_USED);
 
         // Update reward variables.
         _updateRewards(msg.sender);
@@ -155,8 +165,8 @@ contract CrosschainProfitshare {
     function withdraw(bytes32[] calldata _proof, uint256 _amount) external {
         (bytes32 root, ) = ROOT_STATE.rootForChain(block.chainid);
         Balance memory _balance = balance[msg.sender];
-        require(_amount <= _balance.nativeStake, "Cannot withdraw over stake");
-        require(!usedMessage[CrosschainAction.Withdraw][root][msg.sender][block.chainid][_amount], "Message already used");
+        _require(_amount <= _balance.nativeStake, Errors.CANNOT_WITHDRAW_MORE_THAN_STAKE);
+        _require(!usedMessage[CrosschainAction.Withdraw][root][msg.sender][block.chainid][_amount], Errors.MESSAGE_ALREADY_USED);
 
         // Update reward variables.
         _updateRewards(msg.sender);
@@ -180,7 +190,7 @@ contract CrosschainProfitshare {
     /// @param _spender Spender to approve to spend the deposit.
     /// @param _amount Amount of tokens to approve to the spender.
     function approve(address _spender, uint256 _amount) external {
-        require(permittedSpenders[_spender], "Spender not permitted");
+        _require(permittedSpenders[_spender], Errors.SPENDER_NOT_PERMITTED);
         allowance[msg.sender][_spender] = _amount;
     }
 
@@ -194,8 +204,8 @@ contract CrosschainProfitshare {
         _updateRewards(_depositor);
         _updateRewards(msg.sender);
         uint256 nativeStake = balance[_depositor].nativeStake;
-        require(allowance[_depositor][msg.sender] >= _amount, "Insufficient allowance");
-        require(nativeStake >= _amount, "Insufficient staked balance");
+        _require(allowance[_depositor][msg.sender] >= _amount, Errors.INSUFFICIENT_ALLOWANCE);
+        _require(nativeStake >= _amount, Errors.INSUFFICIENT_STAKED_BALANCE);
 
         // Update balances.
         allowance[_depositor][msg.sender] -= _amount;
@@ -230,8 +240,8 @@ contract CrosschainProfitshare {
         bytes32[] calldata _proof,
         uint256 _amount
     ) external {
-        require(ROOT_STATE.validRootForChain(_sourceChain, _sourceRoot), "Invalid root");
-        require(!usedMessage[CrosschainAction.Deposit][_sourceRoot][_depositor][_sourceChain][_amount], "Message already used");
+        _require(ROOT_STATE.validRootForChain(_sourceChain, _sourceRoot), Errors.INVALID_ROOT);
+        _require(!usedMessage[CrosschainAction.Deposit][_sourceRoot][_depositor][_sourceChain][_amount], Errors.MESSAGE_ALREADY_USED);
         _updateRewards(_depositor);
 
         // Verify proof.
@@ -257,8 +267,8 @@ contract CrosschainProfitshare {
         bytes32[] calldata _proof,
         uint256 _amount
     ) external {
-        require(ROOT_STATE.validRootForChain(_sourceChain, _sourceRoot), "Invalid root");
-        require(!usedMessage[CrosschainAction.Withdraw][_sourceRoot][_depositor][_sourceChain][_amount], "Message already used");
+        _require(ROOT_STATE.validRootForChain(_sourceChain, _sourceRoot), Errors.INVALID_ROOT);
+        _require(!usedMessage[CrosschainAction.Withdraw][_sourceRoot][_depositor][_sourceChain][_amount], Errors.MESSAGE_ALREADY_USED);
         _updateRewards(_depositor);
 
         // Verify proof.
@@ -285,6 +295,81 @@ contract CrosschainProfitshare {
     ) external view returns (uint256) {
         Balance memory _balance = balance[_depositor];
         return (_balance.nativeStake + _balance.appendedStake);
+    }
+
+    /// @notice Adds a permitted spender.
+    /// @param _spender Spender to add.
+    function addPermittedSpender(
+        address _spender
+    ) external onlyGovernance {
+        permittedSpenders[_spender] = false;
+    }
+
+    /// @notice Removes a permitted spender.
+    /// @param _spender Spender to remove.
+    function removePermittedSpender(
+        address _spender
+    ) external onlyGovernance {
+        permittedSpenders[_spender] = true;
+    }
+
+    /// @notice Gives the specified address the ability to inject rewards.
+    /// @param _rewardDistribution Address to get reward distribution privileges 
+    function addRewardDistribution(address _rewardDistribution) public onlyGovernance {
+        rewardDistribution[_rewardDistribution] = true;
+    }
+
+    /// @notice Removes the specified address' ability to inject rewards.
+    /// @param _rewardDistribution Address to lose reward distribution privileges
+    function removeRewardDistribution(address _rewardDistribution) public onlyGovernance {
+        rewardDistribution[_rewardDistribution] = false;
+    }
+
+    /// @notice Adds a reward token to the vault.
+    /// @param _rewardToken Reward token to add.
+    /// @param _duration Period in which `_rewardToken` is distributed.
+    function addRewardToken(IERC20 _rewardToken, uint256 _duration) public onlyGovernance {
+        _require(rewardTokenIndex(_rewardToken) == type(uint256).max, Errors.REWARD_TOKEN_ALREADY_EXIST);
+        _require(_duration > 0, Errors.DURATION_CANNOT_BE_ZERO);
+        _rewardTokens.push(_rewardToken);
+        durationForToken[_rewardToken] = _duration;
+    }
+
+    /// @notice Removes a reward token from the vault.
+    /// @param _rewardToken Reward token to remove from the vault.
+    function removeRewardToken(IERC20 _rewardToken) public onlyGovernance {
+        uint256 rewardIndex = rewardTokenIndex(_rewardToken);
+
+        _require(rewardIndex != type(uint256).max, Errors.REWARD_TOKEN_DOES_NOT_EXIST);
+        _require(periodFinishForToken[_rewardToken] < block.timestamp, Errors.REWARD_PERIOD_HAS_NOT_ENDED);
+        _require(_rewardTokens.length > 1, Errors.CANNOT_REMOVE_LAST_REWARD_TOKEN);
+        uint256 lastIndex = _rewardTokens.length - 1;
+
+        _rewardTokens[rewardIndex] = _rewardTokens[lastIndex];
+        _rewardTokens.pop();
+    }
+
+    /// @notice Sets the reward distribution duration for `_rewardToken`.
+    /// @param _rewardToken Reward token to set the duration of.
+    function setDurationForToken(IERC20 _rewardToken, uint256 _duration) public onlyGovernance {
+        uint256 i = rewardTokenIndex(_rewardToken);
+        _require(i != type(uint256).max, Errors.REWARD_TOKEN_DOES_NOT_EXIST);
+        _require(periodFinishForToken[_rewardToken] < block.timestamp, Errors.REWARD_PERIOD_HAS_NOT_ENDED);
+        _require(_duration > 0, Errors.DURATION_CANNOT_BE_ZERO);
+        durationForToken[_rewardToken] = _duration;
+    }
+
+    /// @notice Gets the index of `_rewardToken` in the `rewardTokens` array.
+    /// @param _rewardToken Reward token to get the index of.
+    /// @return The index of the reward token, it will return the max uint256 if it does not exist.
+    function rewardTokenIndex(IERC20 _rewardToken) public view returns (uint256) {
+        IERC20[] memory _rTokens = _rewardTokens;
+        for(uint256 i = 0; i < _rTokens.length; i++) {
+            if(_rTokens[i] == _rewardToken) {
+                return i;
+            }
+        }
+        return type(uint256).max;
     }
 
     /// @notice Gets the last time rewards for a token were applicable.
