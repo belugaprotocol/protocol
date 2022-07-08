@@ -302,7 +302,7 @@ contract CrosschainProfitshare is Governable {
     function addPermittedSpender(
         address _spender
     ) external onlyGovernance {
-        permittedSpenders[_spender] = false;
+        permittedSpenders[_spender] = true;
     }
 
     /// @notice Removes a permitted spender.
@@ -310,7 +310,7 @@ contract CrosschainProfitshare is Governable {
     function removePermittedSpender(
         address _spender
     ) external onlyGovernance {
-        permittedSpenders[_spender] = true;
+        permittedSpenders[_spender] = false;
     }
 
     /// @notice Gives the specified address the ability to inject rewards.
