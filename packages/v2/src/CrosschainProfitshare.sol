@@ -38,6 +38,9 @@ contract CrosschainProfitshare is Governable {
     /// @notice CrosschainRootState contract for fetching merkle roots.
     CrosschainRootState public immutable ROOT_STATE;
 
+    /// @notice Executor responsible for executing cross-chain messages.
+    address public executor;
+
     /// @notice Total tokens staked in the profitshare.
     uint256 public totalSupply;
 
@@ -120,6 +123,12 @@ contract CrosschainProfitshare is Governable {
     /// @param rewardToken Reward token paid out to the depositor.
     /// @param amount Amount of reward tokens claimed.
     event RewardPaid(address indexed depositor, IERC20 indexed rewardToken, uint256 amount);
+
+    /// @notice Modifier to restrict method access to the executor.
+    modifier onlyExecutor {
+        _require(msg.sender == executor, Errors.NOT_EXECUTOR);
+        _;
+    }
 
     /// @notice Constructor for the cross-chain profitshare.
     /// @param _store Storage contract for access control.
@@ -239,7 +248,7 @@ contract CrosschainProfitshare is Governable {
         bytes32 _sourceRoot,
         bytes32[] calldata _proof,
         uint256 _amount
-    ) external {
+    ) external onlyExecutor {
         _require(ROOT_STATE.validRootForChain(_sourceChain, _sourceRoot), Errors.INVALID_ROOT);
         _require(!usedMessage[CrosschainAction.Deposit][_sourceRoot][_depositor][_sourceChain][_amount], Errors.MESSAGE_ALREADY_USED);
         _updateRewards(_depositor);
@@ -266,7 +275,7 @@ contract CrosschainProfitshare is Governable {
         bytes32 _sourceRoot,
         bytes32[] calldata _proof,
         uint256 _amount
-    ) external {
+    ) external onlyExecutor {
         _require(ROOT_STATE.validRootForChain(_sourceChain, _sourceRoot), Errors.INVALID_ROOT);
         _require(!usedMessage[CrosschainAction.Withdraw][_sourceRoot][_depositor][_sourceChain][_amount], Errors.MESSAGE_ALREADY_USED);
         _updateRewards(_depositor);
@@ -295,6 +304,14 @@ contract CrosschainProfitshare is Governable {
     ) external view returns (uint256) {
         Balance memory _balance = balance[_depositor];
         return (_balance.nativeStake + _balance.appendedStake);
+    }
+
+    /// @notice Sets the cross-chain executor.
+    /// @param _executor Cross-chain executor for relaying messages.
+    function setExecutor(
+        address _executor
+    ) external onlyGovernance {
+        executor = _executor;
     }
 
     /// @notice Adds a permitted spender.
