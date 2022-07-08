@@ -43,8 +43,8 @@ contract CrosschainProfitshare {
     mapping(address => Balance) public balance;
 
     /// @notice Marks executed cross-chain messages as used.
-    /// @dev Mapping format: Merkle Root -> Depositor -> Source ChainID -> Amount
-    mapping(bytes32 => mapping(address => mapping(uint256 => mapping(uint256 => bool)))) public usedMessage;
+    /// @dev Mapping format: Action -> Merkle Root -> Depositor -> Source ChainID -> Amount
+    mapping(CrosschainAction => mapping(bytes32 => mapping(address => mapping(uint256 => mapping(uint256 => bool))))) public usedMessage;
 
     /// @notice Reward tokens rewarded by the vault.
     IERC20[] private _rewardTokens;
@@ -118,7 +118,7 @@ contract CrosschainProfitshare {
     function deposit(bytes32[] calldata _proof, uint256 _amount) external {
         (bytes32 root, ) = ROOT_STATE.rootForChain(block.chainid);
         require(_amount >= 0.5 ether, "Min deposit of 0.5");
-        require(!usedMessage[root][msg.sender][block.chainid][_amount], "Message already used");
+        require(!usedMessage[CrosschainAction.Deposit][root][msg.sender][block.chainid][_amount], "Message already used");
 
         // Update reward variables.
         _updateRewards(msg.sender);
@@ -126,7 +126,7 @@ contract CrosschainProfitshare {
         // Verify proof.
         bytes32 leaf = keccak256(abi.encodePacked(CrosschainAction.Deposit, msg.sender, block.chainid, _amount));
         require(MerkleProof.verify(_proof, root, leaf));
-        usedMessage[root][msg.sender][block.chainid][_amount] = true;
+        usedMessage[CrosschainAction.Deposit][root][msg.sender][block.chainid][_amount] = true;
 
         // Update state.
         balance[msg.sender].nativeStake += _amount.u128();
@@ -144,7 +144,7 @@ contract CrosschainProfitshare {
         (bytes32 root, ) = ROOT_STATE.rootForChain(block.chainid);
         Balance memory _balance = balance[msg.sender];
         require(_amount <= _balance.nativeStake, "Cannot withdraw over stake");
-        require(!usedMessage[root][msg.sender][block.chainid][_amount], "Message already used");
+        require(!usedMessage[CrosschainAction.Withdraw][root][msg.sender][block.chainid][_amount], "Message already used");
 
         // Update reward variables.
         _updateRewards(msg.sender);
@@ -152,7 +152,7 @@ contract CrosschainProfitshare {
         // Verify proof.
         bytes32 leaf = keccak256(abi.encodePacked(CrosschainAction.Withdraw, msg.sender, block.chainid, _amount));
         require(MerkleProof.verify(_proof, root, leaf));
-        usedMessage[root][msg.sender][block.chainid][_amount] = true;
+        usedMessage[CrosschainAction.Withdraw][root][msg.sender][block.chainid][_amount] = true;
 
         // Update stake.
         _balance.nativeStake -= _amount.u128();
@@ -188,13 +188,13 @@ contract CrosschainProfitshare {
         uint256 _amount
     ) external {
         require(ROOT_STATE.validRootForChain(_sourceChain, _sourceRoot), "Invalid root");
-        require(!usedMessage[_sourceRoot][_depositor][_sourceChain][_amount], "Message already used");
+        require(!usedMessage[CrosschainAction.Deposit][_sourceRoot][_depositor][_sourceChain][_amount], "Message already used");
         _updateRewards(_depositor);
 
         // Verify proof.
         bytes32 leaf = keccak256(abi.encodePacked(CrosschainAction.Deposit, _depositor, _sourceChain, _amount));
         require(MerkleProof.verify(_proof, _sourceRoot, leaf));
-        usedMessage[_sourceRoot][_depositor][_sourceChain][_amount] = true;
+        usedMessage[CrosschainAction.Deposit][_sourceRoot][_depositor][_sourceChain][_amount] = true;
 
         // Append deposit to the user.
         balance[_depositor].appendedStake += _amount.u128();
@@ -215,13 +215,13 @@ contract CrosschainProfitshare {
         uint256 _amount
     ) external {
         require(ROOT_STATE.validRootForChain(_sourceChain, _sourceRoot), "Invalid root");
-        require(!usedMessage[_sourceRoot][_depositor][_sourceChain][_amount], "Message already used");
+        require(!usedMessage[CrosschainAction.Withdraw][_sourceRoot][_depositor][_sourceChain][_amount], "Message already used");
         _updateRewards(_depositor);
 
         // Verify proof.
         bytes32 leaf = keccak256(abi.encodePacked(CrosschainAction.Withdraw, _depositor, _sourceChain, _amount));
         require(MerkleProof.verify(_proof, _sourceRoot, leaf));
-        usedMessage[_sourceRoot][_depositor][_sourceChain][_amount] = true;
+        usedMessage[CrosschainAction.Withdraw][_sourceRoot][_depositor][_sourceChain][_amount] = true;
 
         // Append withdrawal to the user.
         balance[_depositor].appendedStake -= _amount.u128();
