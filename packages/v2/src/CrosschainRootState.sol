@@ -19,6 +19,9 @@ contract CrosschainRootState {
     /// @notice Roots for each chain.
     mapping(uint256 => Root) public rootForChain;
 
+    /// @notice Valid roots for verification purposes.
+    mapping(uint256 => mapping(bytes32 => bool)) public validRootForChain;
+
     /// @notice Emitted when the root of a chain is updated.
     event RootUpdated(uint256 indexed chainId, bytes32 newRoot);
 
@@ -32,6 +35,7 @@ contract CrosschainRootState {
     function postRootForChain(uint256 _chainId, bytes32 _root) external {
         require(keeper[msg.sender], "Must be a keeper");
         rootForChain[_chainId] = Root(_root, block.timestamp);
+        validRootForChain[_chainId][_root] = true;
         emit RootUpdated(_chainId, _root);
     }
 }

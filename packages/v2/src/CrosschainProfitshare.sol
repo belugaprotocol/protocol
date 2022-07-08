@@ -18,6 +18,12 @@ contract CrosschainProfitshare {
     using SafeMath for uint256;
     using SafeTransferLib for IERC20;
 
+    /// @notice Enum for cross-chain actions.
+    enum CrosschainAction {
+        Deposit,
+        Withdraw
+    }
+
     /// @notice Structure for storing balances.
     struct Balance {
         uint128 nativeStake;    // Amount of BELUGA staked on the current chain.
@@ -110,14 +116,15 @@ contract CrosschainProfitshare {
     /// @param _proof Merkle proof supplied for relaying.
     /// @param _amount Amount of tokens to deposit.
     function deposit(bytes32[] calldata _proof, uint256 _amount) external {
+        (bytes32 root, ) = ROOT_STATE.rootForChain(block.chainid);
         require(_amount >= 0.5 ether, "Min deposit of 0.5");
+        require(!usedMessage[root][msg.sender][block.chainid][_amount], "Message already used");
 
         // Update reward variables.
         _updateRewards(msg.sender);
 
         // Verify proof.
-        (bytes32 root, ) = ROOT_STATE.rootForChain(block.chainid);
-        bytes32 leaf = keccak256(abi.encodePacked(msg.sender, block.chainid, _amount));
+        bytes32 leaf = keccak256(abi.encodePacked(CrosschainAction.Deposit, msg.sender, block.chainid, _amount));
         require(MerkleProof.verify(_proof, root, leaf));
         usedMessage[root][msg.sender][block.chainid][_amount] = true;
 
@@ -134,14 +141,18 @@ contract CrosschainProfitshare {
     /// @param _proof Merkle proof supplied for relaying.
     /// @param _amount Amount of tokens to withdraw.
     function withdraw(bytes32[] calldata _proof, uint256 _amount) external {
+        (bytes32 root, ) = ROOT_STATE.rootForChain(block.chainid);
         Balance memory _balance = balance[msg.sender];
         require(_amount <= _balance.nativeStake, "Cannot withdraw over stake");
-        
+        require(!usedMessage[root][msg.sender][block.chainid][_amount], "Message already used");
+
         // Update reward variables.
         _updateRewards(msg.sender);
 
         // Verify proof.
-        // TODO: Add verification code.
+        bytes32 leaf = keccak256(abi.encodePacked(CrosschainAction.Withdraw, msg.sender, block.chainid, _amount));
+        require(MerkleProof.verify(_proof, root, leaf));
+        usedMessage[root][msg.sender][block.chainid][_amount] = true;
 
         // Update stake.
         _balance.nativeStake -= _amount.u128();
@@ -150,7 +161,6 @@ contract CrosschainProfitshare {
 
         // Transfer tokens and emit relay request.
         BELUGA_TOKEN.safeTransfer(msg.sender, _amount);
-        (bytes32 root, ) = ROOT_STATE.rootForChain(block.chainid);
         emit CrosschainWithdrawal(msg.sender, block.chainid, root, _proof, _amount);
     }
 
@@ -177,11 +187,12 @@ contract CrosschainProfitshare {
         bytes32[] calldata _proof,
         uint256 _amount
     ) external {
+        require(ROOT_STATE.validRootForChain(_sourceChain, _sourceRoot), "Invalid root");
         require(!usedMessage[_sourceRoot][_depositor][_sourceChain][_amount], "Message already used");
         _updateRewards(_depositor);
 
         // Verify proof.
-        bytes32 leaf = keccak256(abi.encodePacked(_depositor, _sourceChain, _amount));
+        bytes32 leaf = keccak256(abi.encodePacked(CrosschainAction.Deposit, _depositor, _sourceChain, _amount));
         require(MerkleProof.verify(_proof, _sourceRoot, leaf));
         usedMessage[_sourceRoot][_depositor][_sourceChain][_amount] = true;
 
@@ -203,11 +214,12 @@ contract CrosschainProfitshare {
         bytes32[] calldata _proof,
         uint256 _amount
     ) external {
+        require(ROOT_STATE.validRootForChain(_sourceChain, _sourceRoot), "Invalid root");
         require(!usedMessage[_sourceRoot][_depositor][_sourceChain][_amount], "Message already used");
         _updateRewards(_depositor);
 
         // Verify proof.
-        bytes32 leaf = keccak256(abi.encodePacked(_depositor, _sourceChain, _amount));
+        bytes32 leaf = keccak256(abi.encodePacked(CrosschainAction.Withdraw, _depositor, _sourceChain, _amount));
         require(MerkleProof.verify(_proof, _sourceRoot, leaf));
         usedMessage[_sourceRoot][_depositor][_sourceChain][_amount] = true;
 
