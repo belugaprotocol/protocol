@@ -46,6 +46,12 @@ contract CrosschainProfitshare {
     /// @dev Mapping format: Action -> Merkle Root -> Depositor -> Source ChainID -> Amount
     mapping(CrosschainAction => mapping(bytes32 => mapping(address => mapping(uint256 => mapping(uint256 => bool))))) public usedMessage;
 
+    /// @notice Permitted contracts that can spend user stake.
+    mapping(address => bool) public permittedSpenders;
+
+    /// @notice User-provided allowance given to approved spenders.
+    mapping(address => mapping(address => uint256)) public allowance;
+
     /// @notice Reward tokens rewarded by the vault.
     IERC20[] private _rewardTokens;
 
@@ -100,6 +106,12 @@ contract CrosschainProfitshare {
         bytes32[] proof,
         uint256 amount
     );
+
+    /// @notice Emitted on a deposit transfer.
+    /// @param depositor Depositor transferred from.
+    /// @param spender Spender of the deposit.
+    /// @param amountTransferred Amount of tokens transferred.
+    event DepositTransferred(address indexed depositor, address indexed spender, uint256 amountTransferred);
 
     /// @notice Emitted on a new reward token claim.
     /// @param depositor Depositor whom claimed the tokens.
@@ -162,6 +174,37 @@ contract CrosschainProfitshare {
         // Transfer tokens and emit relay request.
         BELUGA_TOKEN.safeTransfer(msg.sender, _amount);
         emit CrosschainWithdrawal(msg.sender, block.chainid, root, _proof, _amount);
+    }
+
+    /// @notice Approves a spender to spend a user's deposit.
+    /// @param _spender Spender to approve to spend the deposit.
+    /// @param _amount Amount of tokens to approve to the spender.
+    function approve(address _spender, uint256 _amount) external {
+        require(permittedSpenders[_spender], "Spender not permitted");
+        allowance[msg.sender][_spender] = _amount;
+    }
+
+    /// @notice Transfers a deposit from a depositor to an allowed spender.
+    /// @param _depositor Depositor to transfer the deposit of.
+    /// @param _amount Amount of tokens to transfer from the depositor.
+    function useAllowedDeposit(
+        address _depositor,
+        uint256 _amount
+    ) external {
+        _updateRewards(_depositor);
+        _updateRewards(msg.sender);
+        uint256 nativeStake = balance[_depositor].nativeStake;
+        require(allowance[_depositor][msg.sender] >= _amount, "Insufficient allowance");
+        require(nativeStake >= _amount, "Insufficient staked balance");
+
+        // Update balances.
+        allowance[_depositor][msg.sender] -= _amount;
+        balance[_depositor].nativeStake -= _amount.u128();
+        balance[msg.sender].appendedStake += _amount.u128();
+
+        // Transfer BELUGA tokens to the spender.
+        BELUGA_TOKEN.safeTransfer(msg.sender, _amount);
+        emit DepositTransferred(_depositor, msg.sender, _amount);
     }
 
     /// @notice Claims rewards from the profitshare.
