@@ -3,6 +3,7 @@ pragma solidity 0.8.13;
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeMath} from "@openzeppelin/contracts/utils/math/SafeMath.sol";
+import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeTransferLib} from "./lib/SafeTransferLib.sol";
 import {Cast} from "./lib/Cast.sol";
@@ -34,6 +35,10 @@ contract CrosschainProfitshare {
 
     /// @notice User balances.
     mapping(address => Balance) public balance;
+
+    /// @notice Marks executed cross-chain messages as used.
+    /// @dev Mapping format: Merkle Root -> Depositor -> Source ChainID -> Amount
+    mapping(bytes32 => mapping(address => mapping(uint256 => mapping(uint256 => bool)))) public usedMessage;
 
     /// @notice Reward tokens rewarded by the vault.
     IERC20[] private _rewardTokens;
@@ -111,7 +116,10 @@ contract CrosschainProfitshare {
         _updateRewards(msg.sender);
 
         // Verify proof.
-        // TODO: Add verification code.
+        (bytes32 root, ) = ROOT_STATE.rootForChain(block.chainid);
+        bytes32 leaf = keccak256(abi.encodePacked(msg.sender, block.chainid, _amount));
+        require(MerkleProof.verify(_proof, root, leaf));
+        usedMessage[root][msg.sender][block.chainid][_amount] = true;
 
         // Update state.
         balance[msg.sender].nativeStake += _amount.u128();
@@ -119,7 +127,6 @@ contract CrosschainProfitshare {
 
         // Transfer BELUGA tokens and emit relay request.
         BELUGA_TOKEN.safeTransferFrom(msg.sender, address(this), _amount);
-        (bytes32 root, ) = ROOT_STATE.rootForChain(block.chainid);
         emit CrosschainDeposit(msg.sender, block.chainid, root, _proof, _amount);
     }
     
@@ -170,10 +177,13 @@ contract CrosschainProfitshare {
         bytes32[] calldata _proof,
         uint256 _amount
     ) external {
+        require(!usedMessage[_sourceRoot][_depositor][_sourceChain][_amount], "Message already used");
         _updateRewards(_depositor);
 
         // Verify proof.
-        // TODO: Add verification code.
+        bytes32 leaf = keccak256(abi.encodePacked(_depositor, _sourceChain, _amount));
+        require(MerkleProof.verify(_proof, _sourceRoot, leaf));
+        usedMessage[_sourceRoot][_depositor][_sourceChain][_amount] = true;
 
         // Append deposit to the user.
         balance[_depositor].appendedStake += _amount.u128();
@@ -193,10 +203,13 @@ contract CrosschainProfitshare {
         bytes32[] calldata _proof,
         uint256 _amount
     ) external {
+        require(!usedMessage[_sourceRoot][_depositor][_sourceChain][_amount], "Message already used");
         _updateRewards(_depositor);
 
         // Verify proof.
-        // TODO: Add verification code.
+        bytes32 leaf = keccak256(abi.encodePacked(_depositor, _sourceChain, _amount));
+        require(MerkleProof.verify(_proof, _sourceRoot, leaf));
+        usedMessage[_sourceRoot][_depositor][_sourceChain][_amount] = true;
 
         // Append withdrawal to the user.
         balance[_depositor].appendedStake -= _amount.u128();
