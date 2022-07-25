@@ -1,0 +1,2 @@
+# Mosaics
+Mosaics are an abstract interface for explorer compatability on Beluga's diamond proxies. When deploying a Beluga diamond, you must supply a mosaic address for the contract to display that as the interface on block explorers.
